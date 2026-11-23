@@ -1,0 +1,120 @@
+"""股利與估值的純計算（只用 Python 標準函式庫），給 collect_vcp.py 與 compute_dividend.py 使用。"""
+import bisect
+import datetime as dt
+import re
+import statistics
+
+DETAIL_CASH = "(每股配發現金股利)除息"
+DETAIL_STOCK = "A. 按普通股股東持股比例每千股無償配股"
+
+
+def split_twse(kind, close_before, reference, total):
+    """上市除權息拆成 (每股現金股利, 每千股配股)；「權息」無法由合計拆開，回 (None, None) 交給明細查詢。"""
+    if kind == "息" and total is not None:
+        return total, 0
+    if kind == "權" and close_before and reference:
+        return 0, round((close_before / reference - 1) * 1000)
+    return None, None
+
+
+def _first_number(text):
+    m = re.search(r"-?\d+(?:\.\d+)?", str(text).replace(",", ""))
+    return float(m.group()) if m else 0
+
+
+def parse_detail(resp):
+    """TWT49UDetail 回應 → (每股現金股利, 每千股配股)；查無或欄位變了回 (None, None)。"""
+    if not isinstance(resp, dict) or str(resp.get("stat", "")).lower() != "ok" or not resp.get("data"):
+        return None, None
+    fields = [str(f).strip() for f in resp.get("fields") or []]
+    if DETAIL_CASH not in fields or DETAIL_STOCK not in fields:
+        return None, None
+    row = resp["data"][0]
+    return _first_number(row[fields.index(DETAIL_CASH)]), _first_number(row[fields.index(DETAIL_STOCK)])
+
+
+def _fmt(v):
+    return "" if v is None else f"{v:g}"
+
+
+def twse_row(kind, close_before, reference, total, detail):
+    """上市一筆除權息的 (cash_dividend, stock_per_1000) 字串；「權息」用明細 detail（None＝未知，留空）。"""
+    if kind == "權息":
+        cash, stock = detail if detail else (None, None)
+    else:
+        cash, stock = split_twse(kind, close_before, reference, total)
+    return _fmt(cash), _fmt(stock)
+
+
+def annual_cash(events):
+    """[(除權息日 YYYYMMDD, 現金股利)] → {西元年: (現金股利合計, 配息次數)}；現金為 None 的略過。"""
+    out = {}
+    for d, cash in events:
+        if cash is None:
+            continue
+        y = int(d[:4])
+        s, n = out.get(y, (0.0, 0))
+        out[y] = (s + cash, n + (1 if cash > 0 else 0))
+    return out
+
+
+def _date(s):
+    return dt.date(int(s[:4]), int(s[4:6]), int(s[6:8]))
+
+
+def cash_ttm(events, asof):
+    """除息日在 (asof − 365 天, asof] 內的現金股利合計。"""
+    end = _date(asof)
+    start = end - dt.timedelta(365)
+    return sum(c for d, c in events if c is not None and start < _date(d) <= end)
+
+
+def yearly_stats(annual, last_year):
+    """近 5 個完整年度（last_year−4..last_year，缺年＝0）的平均、連續配息年數、變異係數、未減少年數。"""
+    cash = {y: v[0] for y, v in annual.items()}
+    five = [cash.get(y, 0) for y in range(last_year - 4, last_year + 1)]
+    mean = sum(five) / 5
+    paid = 0
+    y = last_year
+    while cash.get(y, 0) > 0:
+        paid += 1
+        y -= 1
+    up = sum(1 for y in range(last_year - 4, last_year + 1) if cash.get(y, 0) >= cash.get(y - 1, 0))
+    return {"cash_avg5": mean, "paid_years": paid,
+            "cash_cv5": (statistics.pstdev(five) / mean) if mean else None, "up_years5": up}
+
+
+def percentile_rank(history, value):
+    """history 中 ≤ value 的比例 × 100（整數）；history 空回 None。"""
+    if not history:
+        return None
+    xs = sorted(history)
+    return round(bisect.bisect_right(xs, value) / len(xs) * 100)
+
+
+def quantiles(values, qs=(10, 25, 50, 75, 90)):
+    """線性內插分位數（同 numpy 預設）；values 空回全 None。"""
+    if not values:
+        return [None] * len(qs)
+    xs = sorted(values)
+    out = []
+    for q in qs:
+        pos = (len(xs) - 1) * q / 100
+        lo = int(pos)
+        hi = min(lo + 1, len(xs) - 1)
+        out.append(xs[lo] + (xs[hi] - xs[lo]) * (pos - lo))
+    return out
+
+
+def weekly_last(rows):
+    """依日期排序的列（第一欄 YYYYMMDD），每個 ISO 週取最後一列。"""
+    out = []
+    last_week = None
+    for r in rows:
+        wk = _date(r[0]).isocalendar()[:2]
+        if wk == last_week:
+            out[-1] = r
+        else:
+            out.append(r)
+            last_week = wk
+    return out
