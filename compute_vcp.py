@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""從 collect_vcp.py 收集的資料計算 VCP 指標並產出候選名單（只用 Python 標準函式庫；查營收時需 --repo）。
+"""從 collect_vcp.py／collect_revenue.py 收集的資料計算 VCP 指標並產出候選名單（只用 Python 標準函式庫）。
 
 以除權息還原後的價格計算：
   均線 MA10/20/50/60/150/200、52 週高低點、RS（全市場相對強度百分位 1–99）、KD(9,3,3)、RSI(14)、
@@ -13,37 +13,50 @@
   大盤狀態：加權指數相對 MA50／MA200，寫在摘要最上方（大盤轉弱時突破的成功率會下降）。
 
 名單：
-  A 正在形成 VCP：趨勢模板＋收縮逐次變小（≥2 次，最後一次 ≤ 12%）＋量縮（或剛放量突破）＋
+  收縮判斷（依 backtest_vcp.py 回測調整）：只看最近 4 次回檔，須逐次變小（容許 10%）、第一次 ≤ 35%、最後一次 ≤ 12%。
+  放量突破：當日量為 50 日均量的 1.5–3 倍（回測中 3 倍以上的爆量突破表現最差）。
+  A 正在形成 VCP：趨勢模板＋收縮逐次變小＋量縮（或剛放量突破）＋
     收盤在突破點下方 8% 內（接近突破點）或剛放量突破 5% 內。依 tech_score 排序。
-  C 突破後回踩（J Law 買點）：趨勢模板＋最近 3–20 個交易日曾從 VCP 基底放量突破（量 ≥ 50 日均量 1.5 倍）＋
+  C 突破後回踩（J Law 買點）：趨勢模板＋最近 3–20 個交易日曾從 VCP 基底放量突破＋
     之後從高點拉回 ≥ 3%、收盤守在突破位 -3% 以上，且回到突破位或 10／20 日均線附近＋回踩縮量（近 3 日均量 < 50 日均量）。
     附停損參考價（突破位與 MA20 較低者再下 3%）與風險 %。依 tech_score 排序。
-  B、D：A、C 名單中月營收「成長」或「加速」者（需 --repo），依 total_score 排序。
+  E 量縮回檔加碼：趨勢模板（已含站上 MA50）＋從 20 日高點回檔 3–8%＋比前一次收縮淺＋近 3 日均量 < 50 日均量 0.7 倍，
+    且不符合任一排除條件：K < 30、RSI < 45、MACD DIF ≤ 0（回測中超賣或 DIF 轉負的回檔，之後突破的機率明顯較低）。
+    附停損參考價（收盤 -8%）。依 total_score 排序。
+  B、D：A、C 名單中近 3 個月合計營收年增率 ≥ 20% 者；F：E 名單中近 3 個月合計年增率 ≥ 20% 且營收「加速」者。
+    依 total_score（E、F 為 addon_score）排序（需先執行 collect_revenue.py）。
+  停利參考（tp10、tp20）：進場參考價 +10%、+20%，建議分批停利，剩餘部位以 MA50 或移動停損續抱。
+    進場參考價：A「接近突破點」用突破點，其餘用收盤價。
 
 tech_score：RS 為底；強勢產業 +10、產業領頭 +5；A：量縮 +10、近 10 日振幅 ≤ 8% +10、距突破點 3% 內 +10、
-  每次收縮 +5（最多 4 次）；C：縮量回踩 +10、守住支撐 +10、近 10 日振幅 ≤ 8% +10、突破量 ≥ 2 倍 +5。
-月營收（只查 A、C 名單）：近 3 個月年增率都 > 0＝成長（+8）；成長且最新月年增率 > 前 3 個月平均＝加速（+15）；
-  最新月年增率 < 0＝衰退（-10）。total_score＝tech_score＋營收分。
+  每次收縮 +5（最多 4 次）；C：縮量回踩 +10、守住支撐 +10、近 10 日振幅 ≤ 8% +10；
+  E：RSI ≥ 50 且 MACD 柱狀體 > 0 +10、回檔 ≤ 6% +10。
+月營收（讀 <data>/revenue_monthly/，只用到 asof 當天已公布的月份＝次月 10 日後）：
+  rev_3m_yoy＝近 3 個月合計營收年增率；營收分：≥ 40% +20、≥ 20% +15，其餘 0（回測中 < 20% 與衰退的差異不大）。
+  rev_growth（參考）：近 3 個月年增率都 > 0＝成長；成長且最新月年增率 > 前 3 個月平均＝加速；最新月年增率 < 0＝衰退。
+  total_score＝tech_score＋營收分。
+  回測（backtest_vcp.py，看突破後 3 個月內最高漲幅）：營收年增 ≥ 20% 的突破股漲幅較大且逐年穩定，但勝率差不多。
 
 用法：
-  python3 compute_vcp.py --data ~/vcp-data                                   # 只算技術面（A、C）
-  uv run python compute_vcp.py --data ~/vcp-data --repo ~/TWSEMCPServer       # 再加營收（B、D）
+  python3 compute_vcp.py --data vcp-data
   可加 --date YYYYMMDD、--max-from-high 25、--min-value 2e7、--base-days 120、--near-pivot 8
 輸出（<data>/output/）：
-  indicators_YYYYMMDD.csv            全市場指標
+  indicators_YYYYMMDD.csv            全市場指標（含月營收欄位）
   vcp_forming_YYYYMMDD.csv           A 正在形成 VCP
-  vcp_forming_revenue_YYYYMMDD.csv   B＝A＋營收成長（需 --repo）
+  vcp_forming_revenue_YYYYMMDD.csv   B＝A＋營收成長
   vcp_pullback_YYYYMMDD.csv          C 突破後回踩
-  vcp_pullback_revenue_YYYYMMDD.csv  D＝C＋營收成長（需 --repo）
+  vcp_pullback_revenue_YYYYMMDD.csv  D＝C＋營收成長
+  vcp_addon_YYYYMMDD.csv             E 量縮回檔加碼
+  vcp_addon_revenue_YYYYMMDD.csv     F＝E＋營收成長
   summary_YYYYMMDD.md                大盤狀態、強勢產業與各名單前 20 名（手機好讀）
 """
-import argparse, csv, glob, json, os, statistics, sys, time
+import argparse, csv, glob, os, statistics
 from collections import defaultdict
 
 p = argparse.ArgumentParser()
 p.add_argument("--data", required=True)
 p.add_argument("--date", default="")
-p.add_argument("--repo", default="", help="TWSEMCPServer 資料夾；有給才會對候選股查月營收（MOPS）")
+p.add_argument("--repo", default="", help="已不需要（月營收改讀 collect_revenue.py 的資料），保留相容")
 p.add_argument("--min-value", type=float, default=5e7, help="20 日平均成交金額下限（元），預設 5,000 萬")
 p.add_argument("--max-from-high", type=float, default=15.0, help="距 52 週高點最多幾 %%，預設 15（J Law）")
 p.add_argument("--base-days", type=int, default=120, help="往回找收縮的交易日數，預設 120（約 6 個月）")
@@ -166,6 +179,7 @@ def contractions(hi, lo, look, w=4):
 
 
 def is_tight(dep):
+    dep = dep[-4:]  # 只看最近 4 次回檔
     return (len(dep) >= 2 and all(b <= a * 1.1 for a, b in zip(dep, dep[1:])) and dep[0] <= 35
             and dep[-1] <= 12 and dep[0] > dep[-1])
 
@@ -179,7 +193,7 @@ def find_breakout(hi, lo, cl, vol):
             continue
         dep, pivot = contractions(hi[:t], lo[:t], args.base_days)
         v50 = sum(vol[t - 50:t]) / 50
-        if pivot and is_tight(dep) and cl[t] > pivot and cl[t - 1] <= pivot and v50 and vol[t] >= 1.5 * v50:
+        if pivot and is_tight(dep) and cl[t] > pivot and cl[t - 1] <= pivot and v50 and 1.5 * v50 <= vol[t] < 3 * v50:
             return back, pivot, vol[t] / v50
     return None
 
@@ -217,7 +231,8 @@ for code in bars:
         k=k, d=d, rsi14=rsi(cl), dif=dif[-1], macd=sig[-1], osc=dif[-1] - sig[-1],
         vol_ratio_10_50=(v10 / v50) if v50 else None, vol3_vs50=(sma(vol, 3) / v50) if v50 else None,
         vol_today_vs50=(vol[-1] / v50) if v50 else None, avg_value20=sma(val, 20),
-        contractions=" > ".join(map(str, depths[-4:])), pivot=pivot,
+        contractions=" > ".join(map(str, depths[-4:])), pivot=pivot, prev_contraction=depths[-1] if depths else None,
+        pull20=(c / max(hi[-20:]) - 1) * 100,
         pct_to_pivot=(c / pivot - 1) * 100 if pivot else None,
         range10=(max(hi[-10:]) - min(lo[-10:])) / c * 100, days=len(cl)))
 
@@ -254,8 +269,9 @@ else:
     market_state = "加權指數資料不足 200 天，無法判斷"
 
 # ---------- 篩選 ----------
-EXTRA = ("breakout_days_ago", "breakout_pivot", "breakout_vol_x", "pullback_from_high", "support", "stop_ref", "risk_pct")
-forming, pullback = [], []
+EXTRA = ("breakout_days_ago", "breakout_pivot", "breakout_vol_x", "pullback_from_high", "support", "stop_ref", "risk_pct",
+         "addon_veto", "addon_score", "addon_stop", "entry_ref", "tp10", "tp20")
+forming, pullback, addon = [], [], []
 for r in rows_out:
     m50, m150, m200 = r["ma50"], r["ma150"], r["ma200"]
     r["strong_industry"] = r["industry"] in strong_inds
@@ -267,7 +283,7 @@ for r in rows_out:
     dep = [float(x) for x in r["contractions"].split(" > ")] if r["contractions"] else []
     tight, dry = is_tight(dep), (r["vol_ratio_10_50"] or 9) < 1
     near = r["pct_to_pivot"] is not None and -args.near_pivot <= r["pct_to_pivot"] <= 0
-    broke = r["pct_to_pivot"] is not None and 0 < r["pct_to_pivot"] <= 5 and (r["vol_today_vs50"] or 0) >= 1.5
+    broke = r["pct_to_pivot"] is not None and 0 < r["pct_to_pivot"] <= 5 and 1.5 <= (r["vol_today_vs50"] or 0) < 3
     r["contracting"], r["volume_dry"] = tight, dry
     base = (r["rs"] or 0) + (10 if r["strong_industry"] else 0) + (5 if r["industry_leader"] else 0)
     r["stage"] = "剛突破（放量）" if broke else ("接近突破點" if near else "")
@@ -278,6 +294,16 @@ for r in rows_out:
     if not trend:
         r["stage"] = ""
         continue
+    # E 量縮回檔加碼（與 A／C 可重疊）
+    pb = -r["pull20"]
+    veto = [x for x, bad in (("K<30", (r["k"] or 0) < 30), ("RSI<45", (r["rsi14"] or 0) < 45), ("DIF≤0", r["dif"] <= 0))
+            if bad]
+    r["addon_veto"] = "、".join(veto)
+    if (3 <= pb <= 8 and r["prev_contraction"] and pb < r["prev_contraction"] and (r["vol3_vs50"] or 9) < 0.7
+            and not veto):
+        r["addon_score"] = base + (10 if (r["rsi14"] or 0) >= 50 and r["osc"] > 0 else 0) + (10 if pb <= 6 else 0)
+        r["addon_stop"] = r["close"] * 0.92
+        addon.append(r)
     hi, lo, cl, vol = data[r["code"]]
     bo = find_breakout(hi, lo, cl, vol)  # 近 3–20 日已突破的，歸到回踩名單判斷，不算「正在形成」
     if not bo:
@@ -298,64 +324,56 @@ for r in rows_out:
         r.update(stage="突破後回踩", breakout_days_ago=back, breakout_pivot=bpiv, breakout_vol_x=bvx,
                  pullback_from_high=pull, stop_ref=stop, risk_pct=(c / stop - 1) * 100,
                  support="、".join(x for x, ok in (("突破位", near_piv), ("MA10", near10), ("MA20", near20)) if ok))
-        r["tech_score"] = base + 20 + (10 if r["range10"] <= 8 else 0) + (5 if bvx >= 2 else 0)
+        r["tech_score"] = base + 20 + (10 if r["range10"] <= 8 else 0)
         pullback.append(r)
 
-# ---------- 月營收（只查 A、C 名單） ----------
-REV_POINTS = {"加速": 15, "成長": 8, "衰退": -10}
+# ---------- 停利參考（進場參考價 +10%、+20%） ----------
+for lst, use_pivot in ((pullback, False), (addon, False), (forming, True)):
+    for r in lst:
+        ref = r["pivot"] if use_pivot and r["stage"] == "接近突破點" and r["pivot"] else r["close"]
+        r["entry_ref"], r["tp10"], r["tp20"] = ref, ref * 1.10, ref * 1.20
+
+# ---------- 月營收（讀 collect_revenue.py 的資料） ----------
+def rev_points(yoy3):
+    return 20 if yoy3 != "" and yoy3 >= 40 else (15 if yoy3 != "" and yoy3 >= 20 else 0)
 REV_COLS = ("rev_month", "rev_yoy", "rev_yoy_3m", "rev_3m_yoy", "rev_growth")
 
 
-def revenue_reports(code, client, monthly_revenue, cache_dir):
-    """最近 4 個月的 [年月, 本月, 去年同期, 年增率%]（新到舊）；過去月份存快取，最新月份每次重查。"""
-    def parse(rep):
-        get = lambda lab: next((i.value for i in rep.items if i.label == lab), "")
-        yoy = next((num(i.value) for i in rep.items if i.label == "增減百分比"), None)
-        return [f"{rep.period[0]}{rep.period[1]:02d}", num(get("本月")), num(get("去年同期")), yoy]
-    latest = monthly_revenue(client, code)
-    time.sleep(3)
-    if latest is None or latest.period is None or not latest.items:
-        return []
-    out = [parse(latest)]
-    y, m = latest.period
-    for _ in range(3):
-        y, m = (y, m - 1) if m > 1 else (y - 1, 12)
-        path = os.path.join(cache_dir, f"{code}_{y}{m:02d}.json")
-        if os.path.exists(path):
-            out.append(json.load(open(path)))
-            continue
-        rep = monthly_revenue(client, code, y, m)
-        time.sleep(3)
-        if rep is None or not rep.items:
-            break
-        row = parse(rep)
-        json.dump(row, open(path, "w"))
-        out.append(row)
-    return out
+def published_by(ym):
+    """ym（YYYYMM）的營收最晚公布日（次月 10 日），YYYYMMDD 字串。"""
+    y, m = divmod(int(ym), 100)
+    y, m = (y, m + 1) if m < 12 else (y + 1, 1)
+    return f"{y}{m:02d}10"
 
 
-def add_revenue(cands):
-    import logging
-    sys.path.insert(0, os.path.abspath(os.path.expanduser(args.repo)))
-    logging.disable(logging.CRITICAL)
-    from utils.api_client import TWSEAPIClient
-    from sources.mops.monthly_revenue import monthly_revenue
-    client, cache_dir, fails = TWSEAPIClient(), os.path.join(D, "revenue"), 0
-    os.makedirs(cache_dir, exist_ok=True)
-    for r in cands:
-        r["rev_growth"] = "無資料"
-        if fails >= 3:
-            continue  # MOPS 連續失敗（多半被擋），剩下的不查
-        try:
-            reps = revenue_reports(r["code"], client, monthly_revenue, cache_dir)
-            fails = 0
-        except Exception as e:
-            fails += 1
-            print(f"  {r['code']} 月營收查詢失敗：{str(e)[:80]}")
-            continue
-        yoys = [x[3] for x in reps if x[3] is not None]
-        if len(yoys) < 3:
-            continue
+def month_index(ym):
+    y, m = divmod(int(ym), 100)
+    return y * 12 + m
+
+
+# asof 當天「應已公布」的最新月份；只採用最近 6 個月內的資料，避免缺檔時拿到過舊的營收
+_y, _m = int(asof[:4]), int(asof[4:6])
+latest_due = month_index(_y * 100 + _m) - (1 if int(asof[6:]) > 10 else 2)
+revenue = defaultdict(dict)  # code -> {ym: (本月, 去年同期, 年增率%)}
+rev_files = sorted(glob.glob(os.path.join(D, "revenue_monthly", "*.csv")))
+for f in rev_files:
+    ym = os.path.basename(f).split("_")[1][:6]
+    if published_by(ym) > asof or latest_due - month_index(ym) >= 6:
+        continue  # asof 當天還沒公布，或太舊
+    for x in csv.DictReader(open(f, encoding="utf-8")):
+        cur, ly, yoy = num(x["revenue"]), num(x["last_year"]), num(x["yoy_pct"])
+        if yoy is None and cur and ly:
+            yoy = (cur / ly - 1) * 100
+        revenue[x["code"]][ym] = (cur, ly, yoy)
+
+for r in rows_out:
+    for k in REV_COLS:
+        r[k] = ""
+    reps = [(ym, *revenue[r["code"]][ym]) for ym in sorted(revenue.get(r["code"], {}), reverse=True)[:4]]
+    yoys = [x[3] for x in reps if x[3] is not None]
+    if len(yoys) < 3:
+        r["rev_growth"] = "無資料" if rev_files else ""
+    else:
         r["rev_month"], r["rev_yoy"] = reps[0][0], yoys[0]
         r["rev_yoy_3m"] = " / ".join(f"{v:.1f}" for v in yoys[:3])
         cur3, prev3 = sum(x[1] or 0 for x in reps[:3]), sum(x[2] or 0 for x in reps[:3])
@@ -363,48 +381,47 @@ def add_revenue(cands):
         growing = all(v > 0 for v in yoys[:3])
         accel = growing and len(yoys) >= 4 and yoys[0] > sum(yoys[1:4]) / 3
         r["rev_growth"] = "加速" if accel else ("成長" if growing else ("衰退" if yoys[0] < 0 else "持平/不穩"))
-        print(f"  {r['code']} {r['name']} 月營收 {r['rev_month']} 年增 {r['rev_yoy_3m']} → {r['rev_growth']}")
-
-
-for r in rows_out:
-    for k in REV_COLS:
-        r[k] = ""
-if args.repo and (forming or pullback):
-    print(f"查詢 {len(forming) + len(pullback)} 檔候選股的月營收…")
-    add_revenue(forming + pullback)
-    if all(r["rev_growth"] == "無資料" for r in forming + pullback):
-        print("  ⚠ 全部查不到月營收（MOPS 可能擋下或格式改變），營收名單會是空的；請稍後重跑。")
-for r in rows_out:
-    r["rev_points"] = REV_POINTS.get(r["rev_growth"], 0)
+    r["rev_points"] = rev_points(r["rev_3m_yoy"])
     r["total_score"] = r["tech_score"] + r["rev_points"]
+    if r["addon_score"] != "":
+        r["addon_score"] += r["rev_points"]
     for k, v in list(r.items()):
         if isinstance(v, float):
             r[k] = round(v, 2)
+if not rev_files:
+    print("  ⚠ 沒有月營收資料（先執行 collect_revenue.py），只輸出技術面名單。")
 
 # ---------- 輸出 ----------
-def grow(lst):
-    return [r for r in lst if r["rev_growth"] in ("加速", "成長")]
+def grow(lst, accel=False):
+    """近 3 個月合計營收年增率 ≥ 20%（accel：且營收加速）。"""
+    return [r for r in lst if r["rev_3m_yoy"] != "" and r["rev_3m_yoy"] >= 20 and (not accel or r["rev_growth"] == "加速")]
 
 
 def by(lst, key):
     return sorted(lst, key=lambda r: -r[key])
 
 
-lists = [("A 正在形成 VCP（技術面）", f"vcp_forming_{asof}.csv", by(forming, "tech_score"), "tech_score", False)]
-if args.repo:
-    lists.append(("B 正在形成 VCP＋營收成長", f"vcp_forming_revenue_{asof}.csv",
-                  by(grow(forming), "total_score"), "total_score", False))
-lists.append(("C 突破後回踩（技術面）", f"vcp_pullback_{asof}.csv", by(pullback, "tech_score"), "tech_score", True))
-if args.repo:
-    lists.append(("D 突破後回踩＋營收成長", f"vcp_pullback_revenue_{asof}.csv",
-                  by(grow(pullback), "total_score"), "total_score", True))
+has_rev = bool(rev_files)
+lists = [("A 正在形成 VCP（技術面）", f"vcp_forming_{asof}.csv", by(forming, "tech_score"), "tech_score", "forming")]
+if has_rev:
+    lists.append(("B 正在形成 VCP＋營收年增 ≥20%", f"vcp_forming_revenue_{asof}.csv",
+                  by(grow(forming), "total_score"), "total_score", "forming"))
+lists.append(("C 突破後回踩（技術面）", f"vcp_pullback_{asof}.csv", by(pullback, "tech_score"), "tech_score", "pullback"))
+if has_rev:
+    lists.append(("D 突破後回踩＋營收年增 ≥20%", f"vcp_pullback_revenue_{asof}.csv",
+                  by(grow(pullback), "total_score"), "total_score", "pullback"))
+lists.append(("E 量縮回檔加碼", f"vcp_addon_{asof}.csv", by(addon, "addon_score"), "addon_score", "addon"))
+if has_rev:
+    lists.append(("F 量縮回檔加碼＋營收年增 ≥20% 且加速", f"vcp_addon_revenue_{asof}.csv",
+                  by(grow(addon, accel=True), "addon_score"), "addon_score", "addon"))
 
 out_dir = os.path.join(D, "output")
 os.makedirs(out_dir, exist_ok=True)
 KEY = ["code", "name", "market", "industry", "stage", "close", "pivot", "pct_to_pivot", "contractions",
        "breakout_days_ago", "breakout_pivot", "breakout_vol_x", "pullback_from_high", "support", "stop_ref", "risk_pct",
-       "range10", "vol_ratio_10_50", "vol3_vs50", "rs", "strong_industry", "industry_leader", "tech_score",
-       "rev_growth", "rev_yoy_3m", "rev_3m_yoy", "rev_points", "total_score"]
+       "pull20", "prev_contraction", "addon_stop", "addon_veto", "addon_score", "entry_ref", "tp10", "tp20",
+       "range10", "vol_ratio_10_50", "vol3_vs50", "rs", "k", "d", "rsi14", "dif", "osc", "strong_industry",
+       "industry_leader", "tech_score", "rev_month", "rev_growth", "rev_yoy_3m", "rev_3m_yoy", "rev_points", "total_score"]
 cols = (KEY + [k for k in rows_out[0] if k not in KEY]) if rows_out else KEY
 for fn, lst in [(f"indicators_{asof}.csv", by(rows_out, "tech_score"))] + [(x[1], x[2]) for x in lists]:
     with open(os.path.join(out_dir, fn), "w", newline="", encoding="utf-8-sig") as f:
@@ -412,32 +429,44 @@ for fn, lst in [(f"indicators_{asof}.csv", by(rows_out, "tech_score"))] + [(x[1]
         w.writeheader()
         w.writerows(lst)
 
+TABLES = {
+    "forming": (["代號", "名稱", "產業", "狀態", "收盤", "突破點", "距突破 %", "收縮 %", "RS", "營收年增 %", "停利 +10%", "停利 +20%", "分數"],
+                ["code", "name", "industry", "stage", "close", "pivot", "pct_to_pivot", "contractions", "rs", "rev_3m_yoy",
+                 "tp10", "tp20"]),
+    "pullback": (["代號", "名稱", "產業", "收盤", "突破位", "幾天前突破", "拉回 %", "支撐", "停損參考", "風險 %", "RS", "營收年增 %", "停利 +10%", "停利 +20%", "分數"],
+                 ["code", "name", "industry", "close", "breakout_pivot", "breakout_days_ago", "pullback_from_high",
+                  "support", "stop_ref", "risk_pct", "rs", "rev_3m_yoy", "tp10", "tp20"]),
+    "addon": (["代號", "名稱", "產業", "收盤", "回檔 %", "前次收縮 %", "量/50日均量", "K", "RSI", "停損參考", "RS", "營收年增 %", "營收", "停利 +10%", "停利 +20%", "分數"],
+              ["code", "name", "industry", "close", "pull20", "prev_contraction", "vol3_vs50", "k", "rsi14", "addon_stop",
+               "rs", "rev_3m_yoy", "rev_growth", "tp10", "tp20"]),
+}
 
-def md_table(lst, score, pull):
+
+def md_table(lst, score, kind):
     if not lst:
         return "（無）\n"
-    if pull:
-        head = ["代號", "名稱", "產業", "收盤", "突破位", "幾天前突破", "拉回 %", "支撐", "停損參考", "風險 %", "RS", "營收", "分數"]
-        keys = ["code", "name", "industry", "close", "breakout_pivot", "breakout_days_ago", "pullback_from_high",
-                "support", "stop_ref", "risk_pct", "rs", "rev_growth", score]
-    else:
-        head = ["代號", "名稱", "產業", "狀態", "收盤", "突破點", "距突破 %", "收縮 %", "RS", "營收", "分數"]
-        keys = ["code", "name", "industry", "stage", "close", "pivot", "pct_to_pivot", "contractions", "rs",
-                "rev_growth", score]
+    head, keys = TABLES[kind]
+    keys = keys + [score]
     lines = ["| # | " + " | ".join(head) + " |", "|" + "---|" * (len(head) + 1)]
     for i, r in enumerate(lst[:20], 1):
         lines.append(f"| {i} | " + " | ".join(str(r[k]) if r[k] not in ("", None) else "-" for k in keys) + " |")
     return "\n".join(lines) + "\n"
 
 
+rev_months = sorted({ym for v in revenue.values() for ym in v})
 md = [f"# VCP 候選股 {asof}\n", f"**大盤**：{market_state}\n",
       "**強勢產業**（成員 RS 中位數前 20%）：" + (
           "、".join(f"{k}（{ind_med[k]:.0f}）" for k in ind_sorted[:len(strong_inds)]) or "無產業資料") + "\n",
       f"全市場計算 {len(rows_out)} 檔；" + "；".join(f"{t.split('（')[0]} {len(l)} 檔" for t, _, l, _, _ in lists)
-      + ("" if args.repo else "（未查營收：沒有加 --repo）") + "\n"]
-for title, _, lst, score, pull in lists:
-    md += [f"\n## {title}\n", md_table(lst, score, pull)]
-md.append("\n停損參考＝突破位與 MA20 較低者再下 3%；風險 %＝收盤到停損參考的距離。名單是規則初篩，進場前請看線圖確認。\n")
+      + (f"（月營收最新 {rev_months[-1]}）" if rev_months else "（沒有月營收資料）") + "\n"]
+for title, _, lst, score, kind in lists:
+    md += [f"\n## {title}\n", md_table(lst, score, kind)]
+md.append("\nC 停損參考＝突破位與 MA20 較低者再下 3%；風險 %＝收盤到停損參考的距離。\n")
+md.append("E 加碼：每次回檔比前一次淺且量縮時分批加碼，站上前高（突破）再加最後一筆；回檔比前一次深、跌破 MA50 或觸及停損參考（-8%）就停止加碼。\n")
+md.append("停利 +10%／+20%：進場參考價（A 接近突破點用突破點，其餘用收盤）的 1.1、1.2 倍。回測中約一半的突破股在碰到 -8% 停損前能漲到 +10%，"
+          "建議分批停利，剩餘部位以 MA50 或移動停損續抱。\n")
+md.append("營收年增 %＝近 3 個月合計營收年增率；≥ 20% 的突破股，回測中 3 個月內的漲幅較大（勝率差不多）。\n")
+md.append("名單是規則初篩，進場前請看線圖確認。\n")
 open(os.path.join(out_dir, f"summary_{asof}.md"), "w", encoding="utf-8").write("\n".join(md))
 print(f"{asof}：大盤 {market_state}")
 print("；".join(f"{t} {len(l)} 檔" for t, _, l, _, _ in lists) + f" → {out_dir}")

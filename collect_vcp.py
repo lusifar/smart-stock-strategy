@@ -9,14 +9,14 @@
   data/exright/tpex_YYYY.csv   上櫃除權息結果（當年每次重抓）
   data/industry.csv          上市、上櫃公司產業別（每 30 天更新一次）
   data/holidays.txt          查過確定沒開盤的日期（避免重查）
+  data/revenue_monthly/       全市場月營收（每次更新最近 2 個月；歷史請用 collect_revenue.py 回補）
 
 KD、MACD、RSI、均線都由日線計算（見 compute_vcp.py），不需要另外收。
 
-用法（在 TWSEMCPServer 資料夾內，先 `uv sync`）：
-  uv run python collect_vcp.py --out ~/vcp-data                         # 每日：抓最近一個交易日
-  uv run python collect_vcp.py --out ~/vcp-data --date 20261120         # 指定某一天
-  uv run python collect_vcp.py --out ~/vcp-data --backfill 20250501     # 回補：從該日抓到今天
-若本檔不在 TWSEMCPServer 資料夾內，加 --repo /path/to/TWSEMCPServer。
+用法（在專案根目錄；TWSEMCPServer 已 clone 並 `uv sync`）：
+  uv run --project TWSEMCPServer python collect_vcp.py --repo TWSEMCPServer --out vcp-data                    # 每日
+  uv run --project TWSEMCPServer python collect_vcp.py --repo TWSEMCPServer --out vcp-data --date 20261120    # 指定某一天
+  uv run --project TWSEMCPServer python collect_vcp.py --repo TWSEMCPServer --out vcp-data --backfill 20161122  # 回補
 """
 import argparse, csv, datetime as dt, os, sys, time, logging
 
@@ -167,3 +167,13 @@ if got:
     fetch_index({d.strftime("%Y%m") for d in got}, today.strftime("%Y%m"))
     fetch_exright({d.year for d in got}, today.year)
 print(f"完成：{len(got)} 個交易日，資料在 {OUT}")
+
+# 月營收：每次更新最近 2 個月（全市場一頁，請求很少）
+from collect_revenue import update as update_revenue, latest_published  # noqa: E402
+_end = latest_published()
+_y, _m = divmod(_end, 100)
+_start = _end - 1 if _m > 1 else (_y - 1) * 100 + 12
+try:
+    update_revenue(OUT, _start, _end, sleep=args.sleep, log=lambda s: print(s, flush=True))
+except RuntimeError as e:
+    print(f"月營收更新失敗：{e}")
