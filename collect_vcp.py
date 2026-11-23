@@ -27,6 +27,7 @@ p.add_argument("--date", default="", help="只抓這一天 YYYYMMDD")
 p.add_argument("--backfill", default="", help="從這一天 YYYYMMDD 回補到 --until（預設今天）")
 p.add_argument("--until", default="", help="回補結束日 YYYYMMDD（預設今天）")
 p.add_argument("--sleep", type=float, default=8.0, help="每次請求間隔秒數（被擋時調大）")
+p.add_argument("--exright-refresh", action="store_true", help="重抓 2016 年至今的除權息（含股利金額），抓完就結束")
 args = p.parse_args()
 
 sys.path.insert(0, os.path.abspath(os.path.expanduser(args.repo)))
@@ -38,6 +39,8 @@ from sources.twse.mi_5mins_hist import taiex_history           # noqa: E402
 from sources.twse.twt49u import exright_results                # noqa: E402
 from sources.tpex.ex_daily_q import otc_exright_results        # noqa: E402
 from services.market_snapshot import TPEX_PROFILE_URL, LISTED_PROFILE_ENDPOINT  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dividend_calc import parse_detail, twse_row                 # noqa: E402
 
 OUT = os.path.abspath(os.path.expanduser(args.out))
 for sub in ("twse", "tpex", "index", "exright"):
@@ -113,21 +116,56 @@ def fetch_index(months, this_month):
                       [[d.day.strftime("%Y%m%d"), s(d.open), s(d.high), s(d.low), s(d.close)] for d in m.days])
 
 
-def fetch_exright(years, this_year):
+EX_FIELDS = ["date", "code", "name", "close_before", "reference", "kind", "cash_dividend", "stock_per_1000"]
+DETAIL_URL = "https://www.twse.com.tw/rwd/zh/exRight/TWT49UDetail"
+DETAIL_PATH = os.path.join(OUT, "exright", "twse_detail.csv")
+
+
+def load_detail():
+    if not os.path.exists(DETAIL_PATH):
+        return {}
+    return {(r["code"], r["date"]): (float(r["cash_dividend"]), float(r["stock_per_1000"]))
+            for r in csv.DictReader(open(DETAIL_PATH, encoding="utf-8"))}
+
+
+def twse_detail(cache, code, ds):
+    """上市「權息」的 (每股現金股利, 每千股配股)：先查快取，沒有才查 TWT49UDetail；查不到回 None（下次重試）。"""
+    if (code, ds) in cache:
+        return cache[(code, ds)]
+    resp = call(f"除權息明細 {code} {ds}", lambda: client.fetch_json(
+        DETAIL_URL, params={"STK_NO": code, "T1": ds, "response": "json"}))
+    got = parse_detail(resp)
+    if got[0] is None:
+        print(f"  除權息明細 {code} {ds} 無法解析", flush=True)
+        return None
+    cache[(code, ds)] = got
+    write_csv(DETAIL_PATH, ["code", "date", "cash_dividend", "stock_per_1000"],
+              [[c, d, f"{v[0]:g}", f"{v[1]:g}"] for (c, d), v in sorted(cache.items())])
+    return got
+
+
+def fetch_exright(years, this_year, force=False):
+    cache = load_detail()
     for y in sorted(years):
         start, end = dt.date(y, 1, 1), min(dt.date(y, 12, 31), dt.date.today())
         p1 = os.path.join(OUT, "exright", f"twse_{y}.csv")
-        if not os.path.exists(p1) or y == this_year:
+        if force or not os.path.exists(p1) or y == this_year:
             r = call(f"上市除權息 {y}", lambda: exright_results(client, start, end))
-            write_csv(p1, ["date", "code", "name", "close_before", "reference", "kind"],
-                      [[x.day.strftime("%Y%m%d"), x.code, x.name, s(x.close_before), s(x.reference), x.kind]
-                       for x in r.results])
+            rows = []
+            for x in r.results:
+                ds = x.day.strftime("%Y%m%d")
+                cb, ref, tot = (float(v) if v is not None else None
+                                for v in (x.close_before, x.reference, x.rights_and_dividend))
+                det = twse_detail(cache, x.code, ds) if x.kind == "權息" else None
+                rows.append([ds, x.code, x.name, s(x.close_before), s(x.reference), x.kind,
+                             *twse_row(x.kind, cb, ref, tot, det)])
+            write_csv(p1, EX_FIELDS, rows)
         p2 = os.path.join(OUT, "exright", f"tpex_{y}.csv")
-        if not os.path.exists(p2) or y == this_year:
+        if force or not os.path.exists(p2) or y == this_year:
             r = call(f"上櫃除權息 {y}", lambda: otc_exright_results(client, start, end))
-            write_csv(p2, ["date", "code", "name", "close_before", "reference", "kind"],
-                      [[x.day.strftime("%Y%m%d"), x.code, x.name, s(x.close_before), s(x.reference), x.kind]
-                       for x in r.results])
+            write_csv(p2, EX_FIELDS,
+                      [[x.day.strftime("%Y%m%d"), x.code, x.name, s(x.close_before), s(x.reference), x.kind,
+                        s(x.cash_dividend), s(x.stock_dividend)] for x in r.results])
 
 
 def fetch_industry():
@@ -147,6 +185,10 @@ def fetch_industry():
 
 
 today = dt.date.today()
+if args.exright_refresh:
+    fetch_exright(range(2016, today.year + 1), today.year, force=True)
+    print("除權息重抓完成", flush=True)
+    sys.exit(0)
 fetch_industry()
 if args.backfill:
     start = dt.datetime.strptime(args.backfill, "%Y%m%d").date()
