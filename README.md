@@ -66,7 +66,7 @@ launchctl bootout gui/$(id -u)/com.vcp.collect
 rm ~/Library/LaunchAgents/com.vcp.collect.plist
 ```
 
-注意：macOS 可能需要在「系統設定 → 隱私權與安全性 → 完整磁碟取用權限」允許 `uv`，launchd 才能讀寫 `~/Desktop` 底下的專案。
+注意：專案不要放在 `~/Desktop`、`~/Documents`、`~/Downloads`，macOS 的隱私保護（TCC）會擋 launchd 讀取這些資料夾（log 出現 `Operation not permitted`）。目前放在 `~/Projects/smart-stock-strategy`。
 
 ## 預估時間與注意事項
 
