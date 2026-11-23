@@ -2,3 +2,4 @@ TWSEMCPServer/
 __pycache__/
 vcp-data/*.log
 *.tmp
+vcp-data/.daily.lock/

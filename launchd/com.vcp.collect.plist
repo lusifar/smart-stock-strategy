@@ -6,9 +6,7 @@
   <key>WorkingDirectory</key><string>/Users/lusifar/Desktop/project/smart-stock-strategy</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/opt/homebrew/bin/uv</string><string>run</string><string>--project</string><string>TWSEMCPServer</string>
-    <string>python</string><string>collect_vcp.py</string>
-    <string>--repo</string><string>TWSEMCPServer</string><string>--out</string><string>vcp-data</string>
+    <string>/bin/bash</string><string>/Users/lusifar/Desktop/project/smart-stock-strategy/run_daily.sh</string>
   </array>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin</string></dict>
   <key>StartCalendarInterval</key>

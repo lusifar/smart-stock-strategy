@@ -5,6 +5,8 @@
 - `collect_revenue.py`：從 MOPS「營業收入統計表」收集全市場月營收（上市、上櫃各分國內與 -KY 外國公司，每月共 4 頁），用來回補歷史。
 - `compute_vcp.py`：計算均線、52 週高低點、RS、KD、MACD、RSI、量縮、VCP 收縮、產業強度、大盤狀態與月營收，產出六份候選名單。
 - `backtest_vcp.py`：用歷史資料回測 VCP 突破、突破後回踩、量縮回檔加碼，以及 KD／MACD／RSI 的特徵。
+- `chart_vcp.py`：產生走勢圖網頁（K 線＋均線主圖，附圖為成交量、KD、MACD、RSI），標出 VCP 收縮、突破點、停損與停利。
+- `run_daily.sh`：每日流程（收集 → 計算 → commit `vcp-data/` → push 到 dev），由 launchd 排程執行。
 
 KD、MACD、RSI 都是從日線算出來的，**不需要另外收集**。
 
@@ -18,6 +20,8 @@ smart-stock-strategy/
   collect_revenue.py                月營收收集
   compute_vcp.py                    指標計算與名單
   backtest_vcp.py                   回測
+  chart_vcp.py                      走勢圖網頁
+  run_daily.sh                      每日流程（含 commit、push）
   launchd/com.vcp.collect.plist     每日排程（macOS launchd）
   TWSEMCPServer/                    資料來源模組（git clone，已列入 .gitignore）
   vcp-data/                         收集到的資料與輸出（log 與暫存檔已列入 .gitignore）
@@ -38,7 +42,17 @@ smart-stock-strategy/
 
 ## 每日排程
 
-`launchd/com.vcp.collect.plist` 在週一到週五 17:30 執行收集（含最近 2 個月月營收），plist 內的路徑是本專案的絕對路徑（搬移專案後要修改 `WorkingDirectory` 與 log 路徑）。啟用：
+`launchd/com.vcp.collect.plist` 在週一到週五 17:30 執行 `run_daily.sh`：
+
+1. 收集當天日線、加權指數、除權息與最近 2 個月月營收
+2. 執行 `compute_vcp.py` 產生名單
+3. 只 commit `vcp-data/` 的變更（訊息 `data: daily update YYYYMMDD`），並 push 到 `origin/dev`
+
+安全措施：目前分支不是 `dev`、收集或計算失敗、資料沒有變更時都不會 commit；不會把你正在修改的程式一起 commit；push 失敗時 commit 留在本機，下次一起 push。push 使用 macOS 鑰匙圈裡的 GitHub 認證（`credential.helper=osxkeychain`）。
+
+手動測試（只收集與計算，不 commit、不 push）：`DRY_RUN=1 ./run_daily.sh`
+
+plist 內的路徑是本專案的絕對路徑（搬移專案後要修改）。啟用：
 
 ```sh
 cp launchd/com.vcp.collect.plist ~/Library/LaunchAgents/
@@ -88,6 +102,17 @@ vcp-data/
   output/summary_YYYYMMDD.md                大盤狀態、強勢產業、各名單前 20 名（手機好讀）
   output/backtest_*.md / backtest_*.csv     回測結果
 ```
+
+## 走勢圖
+
+```sh
+python3 chart_vcp.py --data vcp-data --codes 3293:20240604 --after 90          # 單一案例（冒號後為突破日）
+python3 chart_vcp.py --data vcp-data --list vcp-data/output/vcp_addon_20250912.csv  # 名單內所有股票，左側可切換
+```
+
+輸出 `vcp-data/output/charts/*.html`，直接用瀏覽器開啟（需連網載入 lightweight-charts）。主圖為還原價 K 線（紅漲綠跌）與 MA10／20／50／150／200，
+標出最近 4 次收縮的高低點與回檔 %、放量突破、突破點、停損 -8%、停利 +10%／+20%；附圖依序為成交量（10、50 日均量）、KD(9,3,3)、MACD(12,26,9)、RSI(14)。
+五張圖的縮放與十字線同步，滑鼠移到哪天，左上角就顯示當天數值。
 
 ## 篩選邏輯
 

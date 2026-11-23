@@ -11,11 +11,14 @@
   python3 collect_revenue.py --out vcp-data --start 202001   # 指定起始月份
 collect_vcp.py 每次執行也會自動更新最近 2 個月。
 """
-import argparse, csv, datetime as dt, html, os, re, sys, time, urllib.request
+import argparse, csv, datetime as dt, html, os, re, ssl, sys, time, urllib.request
 
 URL = "https://mopsov.twse.com.tw/nas/t21/{mk}/t21sc03_{roc}_{m}_{kind}.html"
 # (MOPS 市場, 檔名前綴, 頁別)：頁別 0＝國內公司、1＝國外公司（-KY）
 PAGES = (("sii", "twse", 0), ("otc", "tpex", 0), ("sii", "twse-ky", 1), ("otc", "tpex-ky", 1))
+# MOPS 憑證缺 Subject Key Identifier，Python 3.13 起預設的 X509 嚴格檢查會拒絕；只關掉嚴格模式，仍驗證憑證。
+SSL_CTX = ssl.create_default_context()
+SSL_CTX.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
 FIELDS = ["ym", "code", "name", "revenue", "prev_month", "last_year", "mom_pct", "yoy_pct", "cum", "cum_last_year",
           "cum_yoy_pct", "note"]
 
@@ -39,7 +42,7 @@ def latest_published(today=None):
 def fetch(mk, ym, kind=0):
     y, m = divmod(ym, 100)
     req = urllib.request.Request(URL.format(mk=mk, roc=y - 1911, m=m, kind=kind), headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=60) as r:
+    with urllib.request.urlopen(req, timeout=60, context=SSL_CTX) as r:
         if r.status != 200:
             raise RuntimeError(f"HTTP {r.status}")
         text = r.read().decode("big5-hkscs", "replace")
