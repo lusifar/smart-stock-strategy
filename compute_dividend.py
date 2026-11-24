@@ -3,9 +3,8 @@
 
 讀 <data>/ 的日線（twse/、tpex/，未還原收盤）、每日估值（valuation/）、除權息股利（exright/），輸出到 <data>/output/：
   dividend_YYYYMMDD.csv           每檔一列：官方本益比／淨值比／殖利率、近四季 EPS、每股淨值、近 12 個月殖利率、
-                                  5 年平均殖利率、連續配息年數、股利穩定度、歷史百分位、河流圖分位數
+                                  5 年平均殖利率、連續配息年數、股利穩定度、歷史百分位
   dividend_history.csv            每檔每年股利（依除權息日的西元年）；cash＝當年公告，cash_adj＝換算成今天股數
-  river/<代號>.csv                每週一列（每週最後一個交易日）：收盤、本益比、淨值比、EPS、每股淨值、殖利率
   dividend_list_G_YYYYMMDD.csv    G 長期配息
   dividend_list_H_YYYYMMDD.csv    H 長期配息＋相對低估
   dividend_summary_YYYYMMDD.md    摘要（手機好讀）
@@ -15,8 +14,8 @@
 import argparse, csv, datetime as dt, glob, os
 from collections import defaultdict
 
-from dividend_calc import (adjust_cash, annual_cash, cash_ttm, percentile_rank, quantiles, share_changes,
-                           stock_factor, weekly_last, yearly_stats)
+from dividend_calc import (adjust_cash, annual_cash, cash_ttm, percentile_rank, share_changes, stock_factor,
+                           yearly_stats)
 
 p = argparse.ArgumentParser()
 p.add_argument("--data", required=True)
@@ -27,7 +26,7 @@ p.add_argument("--max-cv", type=float, default=0.5, help="G：近 5 年股利變
 p.add_argument("--min-value", type=float, default=2e7, help="G：20 日平均成交金額下限（元）")
 p.add_argument("--min-yield-pctile", type=float, default=70, help="H：殖利率歷史百分位下限")
 p.add_argument("--min-history", type=int, default=250,
-               help="百分位與分位數至少要幾個交易日的估值歷史（預設 250，約 1 年；不足留空）")
+               help="百分位至少要幾個交易日的估值歷史（預設 250，約 1 年；不足留空）")
 p.add_argument("--max-pb-pctile", type=float, default=50, help="H：淨值比歷史百分位上限")
 args = p.parse_args()
 D = os.path.abspath(os.path.expanduser(args.data))
@@ -91,11 +90,9 @@ def r2(x):
 # ---------- 每檔指標 ----------
 FIELDS = ["code", "name", "market", "close", "pe", "pb", "yield_pct", "eps_ttm", "bvps", "cash_ttm", "yield_ttm",
           "cash_avg5", "yield_avg5", "paid_years", "cash_cv5", "up_years5", "yield_pctile", "pe_pctile", "pb_pctile",
-          "pe_q10", "pe_q25", "pe_q50", "pe_q75", "pe_q90", "pb_q10", "pb_q25", "pb_q50", "pb_q75", "pb_q90",
           "avg_value20"]
-RIVER = ["date", "close", "pe", "pb", "eps_ttm", "bvps", "yield_pct"]
-d10, d5 = days_before(asof, 3650), days_before(asof, 1826)
-os.makedirs(os.path.join(OUT, "river"), exist_ok=True)
+d10 = days_before(asof, 3650)
+os.makedirs(OUT, exist_ok=True)
 rows = []
 adj_factors = {}
 for code, cl in close.items():
@@ -115,9 +112,8 @@ for code, cl in close.items():
     today = hist[-1] if hist and hist[-1][0] == asof else (asof, None, None, None)
     _, pe, pb, yp = today
     h10 = [x for x in hist if x[0] > d10]
-    h5 = [x for x in hist if x[0] > d5]
     if len(h10) < args.min_history:
-        h10 = h5 = []
+        h10 = []
     row = dict(code=code, name=names[code], market=market[code], close=c, pe=pe, pb=pb, yield_pct=yp,
                eps_ttm=(c / pe) if pe else None, bvps=(c / pb) if pb else None,
                cash_ttm=ttm, yield_ttm=ttm / c * 100, cash_avg5=st["cash_avg5"],
@@ -127,24 +123,7 @@ for code, cl in close.items():
                pe_pctile=percentile_rank([x[1] for x in h10 if x[1] is not None], pe) if pe is not None else None,
                pb_pctile=percentile_rank([x[2] for x in h10 if x[2] is not None], pb) if pb is not None else None,
                avg_value20=sum(vs) / len(vs) if vs else None)
-    for k, qv in zip(("pe_q10", "pe_q25", "pe_q50", "pe_q75", "pe_q90"),
-                     quantiles([x[1] for x in h5 if x[1] is not None])):
-        row[k] = qv
-    for k, qv in zip(("pb_q10", "pb_q25", "pb_q50", "pb_q75", "pb_q90"),
-                     quantiles([x[2] for x in h5 if x[2] is not None])):
-        row[k] = qv
     rows.append({k: (r2(v) if isinstance(v, float) or v is None else v) for k, v in row.items()})
-    if hist:
-        river = []
-        for d, rpe, rpb, ryp in hist:
-            rc = cl.get(d)
-            if rc is None:
-                continue
-            river.append((d, rc, r2(rpe), r2(rpb), r2(rc / rpe) if rpe else "", r2(rc / rpb) if rpb else "", r2(ryp)))
-        with open(os.path.join(OUT, "river", f"{code}.csv"), "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-            w.writerow(RIVER)
-            w.writerows(weekly_last(river))
 
 
 def write(fn, fields, lst):

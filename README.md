@@ -4,7 +4,7 @@
 - `collect_vcp.py`：每天收集上市、上櫃全市場日線（開高低收量）、加權指數、除權息結果、產業別（每 30 天更新），並更新最近 2 個月的月營收。
 - `collect_revenue.py`：從 MOPS「營業收入統計表」收集全市場月營收（上市、上櫃各分國內與 -KY 外國公司，每月共 4 頁），用來回補歷史。
 - `compute_vcp.py`：計算均線、52 週高低點、RS、KD、MACD、RSI、量縮、VCP 收縮、產業強度、大盤狀態與月營收，產出六份候選名單。
-- `compute_dividend.py`：計算殖利率（官方、近 12 個月、5 年平均）、連續配息年數、股利穩定度、本益比／淨值比／殖利率的歷史百分位與河流圖資料，產出 G、H 兩份配息名單。
+- `compute_dividend.py`：計算殖利率（官方、近 12 個月、5 年平均）、連續配息年數、股利穩定度、本益比／淨值比／殖利率的歷史百分位，產出 G、H 兩份配息名單。
 - `dividend_calc.py`：股利計算的純函式（`compute_dividend.py`、`collect_vcp.py` 共用；測試在 `tests/`）。
 - `backtest_vcp.py`：用歷史資料回測 VCP 突破、突破後回踩、量縮回檔加碼，以及 KD／MACD／RSI 的特徵。
 - `chart_vcp.py`：產生走勢圖網頁（K 線＋均線主圖，附圖為成交量、KD、MACD、RSI），標出 VCP 收縮、突破點、停損與停利。
@@ -108,9 +108,8 @@ vcp-data/
   output/vcp_addon_YYYYMMDD.csv             E 量縮回檔加碼
   output/vcp_addon_revenue_YYYYMMDD.csv     F＝E＋營收年增 ≥20% 且加速
   output/summary_YYYYMMDD.md                大盤狀態、強勢產業、各名單前 20 名（手機好讀）
-  output/dividend_YYYYMMDD.csv              每檔殖利率、配息穩定度、估值百分位、河流圖分位數
+  output/dividend_YYYYMMDD.csv              每檔殖利率、配息穩定度、估值百分位
   output/dividend_history.csv               每檔每年股利（依除權息日的西元年）：code,name,year,cash,cash_adj,stock_per_1000,times
-  output/river/<代號>.csv                   每週一列：收盤、本益比、淨值比、近四季 EPS、每股淨值、殖利率
   output/dividend_list_G_YYYYMMDD.csv       G 長期配息
   output/dividend_list_H_YYYYMMDD.csv       H 長期配息＋相對低估
   output/dividend_summary_YYYYMMDD.md       配息名單摘要
@@ -197,8 +196,8 @@ KD、RSI、MACD 都在 indicators 檔裡，可以拿來再加條件。名單是�
 - `eps_ttm`＝收盤 ÷ 本益比（近四季 EPS）、`bvps`＝收盤 ÷ 淨值比（每股淨值）；虧損時本益比為空。
 - `yield_ttm`＝近 365 天除息現金合計 ÷ 收盤；`yield_avg5`＝近 5 個完整年度（今年以前，缺年算 0）平均現金股利 ÷ 收盤。
 - `paid_years`：從去年往回連續有現金股利的年數；`cash_cv5`：近 5 年股利的變異係數（越小越穩）；`up_years5`：近 5 年股利不低於前一年的年數。
-- `yield_pctile`／`pe_pctile`／`pb_pctile`：今天的值在自己近 10 年每日值中的百分位（殖利率越高、本益比與淨值比越低＝相對便宜）。估值歷史不足 250 個交易日（`--min-history`）時，百分位與分位數留空，H 名單也就不會選到（新上市股、或估值回補尚未完成時）。
-- `pe_q10…q90`、`pb_q10…q90`：近 5 年分位數，河流圖帶狀用（帶狀價格＝`eps_ttm` 或 `bvps` × 倍數）。
+- 河流圖不預先計算：直接用 `valuation/` 每日的 pe、pb 搭配日線收盤自行運算（EPS＝收盤 ÷ pe、每股淨值＝收盤 ÷ pb）。
+- `yield_pctile`／`pe_pctile`／`pb_pctile`：今天的值在自己近 10 年每日值中的百分位（殖利率越高、本益比與淨值比越低＝相對便宜）。估值歷史不足 250 個交易日（`--min-history`）時，百分位留空，H 名單也就不會選到（新上市股、或估值回補尚未完成時）。
 - G 長期配息：連續配息 ≥ 5 年、5 年平均殖利率 ≥ 4%、變異係數 ≤ 0.5、20 日均成交金額 ≥ 2,000 萬。
 - H 長期配息＋相對低估：G 且殖利率百分位 ≥ 70、淨值比百分位 ≤ 50。
 - 可調參數：`--min-yield`、`--min-years`、`--max-cv`、`--min-value`、`--min-yield-pctile`、`--max-pb-pctile`、`--date`。

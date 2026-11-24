@@ -92,34 +92,6 @@ def percentile_rank(history, value):
     return round(bisect.bisect_right(xs, value) / len(xs) * 100)
 
 
-def quantiles(values, qs=(10, 25, 50, 75, 90)):
-    """線性內插分位數（同 numpy 預設）；values 空回全 None。"""
-    if not values:
-        return [None] * len(qs)
-    xs = sorted(values)
-    out = []
-    for q in qs:
-        pos = (len(xs) - 1) * q / 100
-        lo = int(pos)
-        hi = min(lo + 1, len(xs) - 1)
-        out.append(xs[lo] + (xs[hi] - xs[lo]) * (pos - lo))
-    return out
-
-
-def weekly_last(rows):
-    """依日期排序的列（第一欄 YYYYMMDD），每個 ISO 週取最後一列。"""
-    out = []
-    last_week = None
-    for r in rows:
-        wk = _date(r[0]).isocalendar()[:2]
-        if wk == last_week:
-            out[-1] = r
-        else:
-            out.append(r)
-            last_week = wk
-    return out
-
-
 def share_changes(close, opn, market_dates, exdates, threshold=0.15, min_halt=3):
     """減資、面額變更等股數變動：停止交易 ≥ min_halt 個市場交易日後，恢復日開盤 ÷ 停牌前收盤偏離 1 超過 threshold，
     且不是除權息日。close/opn：{YYYYMMDD: 價}；market_dates：全市場交易日（排序）。回 [(恢復日, 股價比例)]。"""

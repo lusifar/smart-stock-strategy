@@ -91,16 +91,6 @@ class Stats(unittest.TestCase):
     def test_percentile_rank_empty(self):
         self.assertIsNone(dc.percentile_rank([], 3))
 
-    def test_quantiles(self):
-        self.assertEqual(dc.quantiles([5, 1, 3, 2, 4], (0, 50, 100)), [1, 3, 5])
-        self.assertEqual(dc.quantiles([1, 2], (25,)), [1.25])
-
-    def test_quantiles_empty(self):
-        self.assertEqual(dc.quantiles([], (10, 50)), [None, None])
-
-    def test_weekly_last(self):
-        rows = [("20261117",), ("20261120",), ("20261123",), ("20261124",)]
-        self.assertEqual(dc.weekly_last(rows), [("20261120",), ("20261124",)])
 
 
 class ShareChanges(unittest.TestCase):

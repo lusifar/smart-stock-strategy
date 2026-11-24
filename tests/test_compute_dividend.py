@@ -65,12 +65,14 @@ class ComputeDividend(unittest.TestCase):
                              capture_output=True, text=True)
         self.assertEqual(out.returncode, 0, out.stderr)
         r = {x["code"]: x for x in rows(self.out("dividend_20261124.csv"))}["9999"]
-        self.assertEqual((r["pe_pctile"], r["yield_pctile"], r["pb_q50"]), ("", "", ""))
+        self.assertEqual((r["pe_pctile"], r["yield_pctile"], r["pb_pctile"]), ("", "", ""))
         subprocess.run([sys.executable, os.path.join(ROOT, "compute_dividend.py"), "--data", self.d,
                         "--min-history", "1"], capture_output=True, text=True)
 
-    def test_river_weekly(self):
-        self.assertEqual([x["date"] for x in rows(self.out("river/9999.csv"))], ["20261120", "20261124"])
+    def test_no_river_outputs(self):
+        self.assertFalse(os.path.exists(self.out("river")))
+        cols = rows(self.out("dividend_20261124.csv"))[0].keys()
+        self.assertFalse([c for c in cols if "_q" in c])
 
     def test_lists_and_history(self):
         self.assertIn("9999", [x["code"] for x in rows(self.out("dividend_list_G_20261124.csv"))])
