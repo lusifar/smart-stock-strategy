@@ -27,6 +27,7 @@ p.add_argument("--date", default="", help="只抓這一天 YYYYMMDD")
 p.add_argument("--backfill", default="", help="從這一天 YYYYMMDD 回補到 --until（預設今天）")
 p.add_argument("--until", default="", help="回補結束日 YYYYMMDD（預設今天）")
 p.add_argument("--sleep", type=float, default=8.0, help="每次請求間隔秒數（被擋時調大）")
+p.add_argument("--valuation-backfill", default="", help="只回補每日估值：從這一天 YYYYMMDD 到 --until（只抓已有日線的交易日）")
 p.add_argument("--exright-refresh", action="store_true", help="重抓 2016 年至今的除權息（含股利金額），抓完就結束")
 args = p.parse_args()
 
@@ -38,12 +39,14 @@ from sources.tpex.daily_quotes import otc_daily_quotes         # noqa: E402
 from sources.twse.mi_5mins_hist import taiex_history           # noqa: E402
 from sources.twse.twt49u import exright_results                # noqa: E402
 from sources.tpex.ex_daily_q import otc_exright_results        # noqa: E402
+from sources.twse.bwibbu_d import valuation_ratios             # noqa: E402
+from sources.tpex.pe_qry_date import otc_valuation_ratios      # noqa: E402
 from services.market_snapshot import TPEX_PROFILE_URL, LISTED_PROFILE_ENDPOINT  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dividend_calc import parse_detail, twse_row                 # noqa: E402
 
 OUT = os.path.abspath(os.path.expanduser(args.out))
-for sub in ("twse", "tpex", "index", "exright"):
+for sub in ("twse", "tpex", "index", "exright", "valuation/twse", "valuation/tpex"):
     os.makedirs(os.path.join(OUT, sub), exist_ok=True)
 HOLI = os.path.join(OUT, "holidays.txt")
 holidays = set(open(HOLI).read().split()) if os.path.exists(HOLI) else set()
@@ -168,6 +171,29 @@ def fetch_exright(years, this_year, force=False):
                         s(x.cash_dividend), s(x.stock_dividend)] for x in r.results])
 
 
+VAL_FIELDS = ["date", "code", "name", "pe", "pb", "yield_pct", "dividend_year", "fiscal", "dps"]
+
+
+def fetch_valuation(ds):
+    """ds 當天上市（BWIBBU_d）＋上櫃（peQryDate）每檔本益比、淨值比、殖利率；已存在就跳過，回傳日期不符就不寫檔。"""
+    p1 = os.path.join(OUT, "valuation", "twse", f"{ds}.csv")
+    if not os.path.exists(p1):
+        r = call(f"上市估值 {ds}", lambda: valuation_ratios(client, ds))
+        if r.found and r.date == ds and r.valuations:
+            write_csv(p1, VAL_FIELDS, [[ds, v.code, v.name, s(v.pe), s(v.pb), s(v.dividend_yield), v.dividend_year,
+                                        v.fiscal, ""] for v in r.valuations])
+        else:
+            print(f"  估值 上市 {ds} 無資料（回傳 {r.date or r.stat}）", flush=True)
+    p2 = os.path.join(OUT, "valuation", "tpex", f"{ds}.csv")
+    if not os.path.exists(p2):
+        r = call(f"上櫃估值 {ds}", lambda: otc_valuation_ratios(client, ds))
+        if r.date == ds and r.valuations:
+            write_csv(p2, VAL_FIELDS, [[ds, v.code, v.name, s(v.pe), s(v.pb), s(v.dividend_yield), v.dividend_year,
+                                        v.fiscal, s(v.dividend_per_share)] for v in r.valuations])
+        else:
+            print(f"  估值 上櫃 {ds} 無資料（回傳 {r.date}）", flush=True)
+
+
 def fetch_industry():
     """上市（t187ap03_L）＋上櫃（t187ap03_O）公司產業別；檔案超過 30 天才重抓。"""
     path = os.path.join(OUT, "industry.csv")
@@ -189,6 +215,16 @@ if args.exright_refresh:
     fetch_exright(range(2016, today.year + 1), today.year, force=True)
     print("除權息重抓完成", flush=True)
     sys.exit(0)
+if args.valuation_backfill:
+    end = args.until or today.strftime("%Y%m%d")
+    trade_days = sorted(f[:8] for f in os.listdir(os.path.join(OUT, "twse")) if f.endswith(".csv"))
+    todo = [d for d in trade_days if args.valuation_backfill <= d <= end]
+    for i, ds in enumerate(todo, 1):
+        fetch_valuation(ds)
+        if i % 50 == 0:
+            print(f"估值回補 {i}/{len(todo)}（{ds}）", flush=True)
+    print(f"估值回補完成：{len(todo)} 個交易日", flush=True)
+    sys.exit(0)
 fetch_industry()
 if args.backfill:
     start = dt.datetime.strptime(args.backfill, "%Y%m%d").date()
@@ -205,6 +241,8 @@ else:  # 每日模式：今天起往回找最近一個交易日（最多 10 天�
             break
 
 got = [d for d in days if d.weekday() < 5 and fetch_day(d.strftime("%Y%m%d"))]
+for d in got:
+    fetch_valuation(d.strftime("%Y%m%d"))
 if got:
     fetch_index({d.strftime("%Y%m") for d in got}, today.strftime("%Y%m"))
     fetch_exright({d.year for d in got}, today.year)
