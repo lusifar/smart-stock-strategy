@@ -35,6 +35,8 @@ if ! python3 compute_vcp.py --data vcp-data; then
   exit 1
 fi
 
+python3 compute_dividend.py --data vcp-data || log "股利計算失敗（仍 commit 其他資料）。"
+
 if [ "${DRY_RUN:-0}" = "1" ]; then
   log "DRY_RUN：略過 commit 與 push。待 commit 的變更："
   git status --short -- vcp-data | head -20

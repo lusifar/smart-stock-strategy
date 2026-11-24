@@ -26,6 +26,8 @@ p.add_argument("--min-years", type=int, default=5, help="G：連續配息年數�
 p.add_argument("--max-cv", type=float, default=0.5, help="G：近 5 年股利變異係數上限")
 p.add_argument("--min-value", type=float, default=2e7, help="G：20 日平均成交金額下限（元）")
 p.add_argument("--min-yield-pctile", type=float, default=70, help="H：殖利率歷史百分位下限")
+p.add_argument("--min-history", type=int, default=250,
+               help="百分位與分位數至少要幾個交易日的估值歷史（預設 250，約 1 年；不足留空）")
 p.add_argument("--max-pb-pctile", type=float, default=50, help="H：淨值比歷史百分位上限")
 args = p.parse_args()
 D = os.path.abspath(os.path.expanduser(args.data))
@@ -114,6 +116,8 @@ for code, cl in close.items():
     _, pe, pb, yp = today
     h10 = [x for x in hist if x[0] > d10]
     h5 = [x for x in hist if x[0] > d5]
+    if len(h10) < args.min_history:
+        h10 = h5 = []
     row = dict(code=code, name=names[code], market=market[code], close=c, pe=pe, pb=pb, yield_pct=yp,
                eps_ttm=(c / pe) if pe else None, bvps=(c / pb) if pb else None,
                cash_ttm=ttm, yield_ttm=ttm / c * 100, cash_avg5=st["cash_avg5"],

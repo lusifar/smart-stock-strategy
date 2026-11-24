@@ -38,8 +38,8 @@ class ComputeDividend(unittest.TestCase):
             write(f"{d}/exright/tpex_{y}.csv", EX)
         write(f"{d}/exright/twse_2026.csv", EX)
         write(f"{d}/exright/tpex_2026.csv", EX)
-        cls.run_out = subprocess.run([sys.executable, os.path.join(ROOT, "compute_dividend.py"), "--data", d],
-                                     capture_output=True, text=True)
+        cls.run_out = subprocess.run([sys.executable, os.path.join(ROOT, "compute_dividend.py"), "--data", d,
+                                      "--min-history", "1"], capture_output=True, text=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -59,6 +59,15 @@ class ComputeDividend(unittest.TestCase):
         self.assertEqual(int(r["paid_years"]), 6)
         self.assertEqual(float(r["cash_cv5"]), 0)
         self.assertEqual(float(r["pe_pctile"]), 100)
+
+    def test_short_history_has_no_percentile(self):
+        out = subprocess.run([sys.executable, os.path.join(ROOT, "compute_dividend.py"), "--data", self.d],
+                             capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        r = {x["code"]: x for x in rows(self.out("dividend_20261124.csv"))}["9999"]
+        self.assertEqual((r["pe_pctile"], r["yield_pctile"], r["pb_q50"]), ("", "", ""))
+        subprocess.run([sys.executable, os.path.join(ROOT, "compute_dividend.py"), "--data", self.d,
+                        "--min-history", "1"], capture_output=True, text=True)
 
     def test_river_weekly(self):
         self.assertEqual([x["date"] for x in rows(self.out("river/9999.csv"))], ["20261120", "20261124"])
