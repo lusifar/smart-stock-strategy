@@ -93,6 +93,9 @@ def fetch_day(ds):
     if not os.path.exists(tw_path):
         t = call(f"上市 {ds}", lambda: stock_quotes(client, "ALLBUT0999", ds))
         if t is None or t.date != ds:
+            if ds == dt.date.today().strftime("%Y%m%d"):  # 今天可能只是還沒公布，不記成休市
+                print(f"{ds} 尚無資料（可能還沒公布）", flush=True)
+                return ""
             holidays.add(ds)
             open(HOLI, "a").write(ds + "\n")
             print(f"{ds} 休市", flush=True)
