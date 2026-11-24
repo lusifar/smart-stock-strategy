@@ -44,8 +44,8 @@ if [ "${DRY_RUN:-0}" = "1" ]; then
 fi
 
 current=$(git rev-parse --abbrev-ref HEAD)
-if [ "$current" != "$BRANCH" ]; then
-  log "目前分支是 $current，不是 $BRANCH，略過 commit 與 push。"
+if [ "$current" != "${BRANCH}" ]; then
+  log "目前分支是 ${current}，不是 ${BRANCH}，略過 commit 與 push。"
   exit 0
 fi
 
@@ -62,8 +62,8 @@ if ! git commit -q -m "data: daily update ${latest}" -- vcp-data; then
 fi
 log "已 commit：$(git log --oneline -1)"
 
-if git push -q origin "$BRANCH"; then
-  log "已 push 到 origin/$BRANCH。"
+if git push -q origin "${BRANCH}"; then
+  log "已 push 到 origin/${BRANCH}。"
 else
   log "push 失敗（網路或認證問題），commit 已保留在本機，下次執行會一起 push。"
   exit 1
