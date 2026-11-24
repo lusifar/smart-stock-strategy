@@ -151,3 +151,27 @@ def adjust_cash(events, factors):
                     cash *= f
         out.append((d, cash))
     return out
+
+
+BWIBBU_NEED = ("證券代號", "本益比", "殖利率(%)", "股價淨值比")
+
+
+def _cell(row, fields, name):
+    if name not in fields:
+        return ""
+    v = str(row[fields.index(name)]).strip().replace(",", "")
+    return "" if v in ("-", "--", "") else v
+
+
+def parse_bwibbu(resp):
+    """上市 BWIBBU_d 回應 → (實際日期, [[code, name, pe, pb, yield_pct, dividend_year, fiscal]])。
+    新舊格式都吃：舊格式（約 2017 年前）沒有 股利年度、財報年/季，留空。查無資料回 ("", [])；缺必要欄位丟 ValueError。"""
+    if not isinstance(resp, dict) or str(resp.get("stat", "")) != "OK" or not resp.get("data"):
+        return "", []
+    fields = [str(f).strip() for f in resp.get("fields") or []]
+    missing = [f for f in BWIBBU_NEED if f not in fields]
+    if missing:
+        raise ValueError(f"BWIBBU_d 缺欄位 {missing}；目前欄位：{fields}")
+    out = [[_cell(r, fields, k) for k in ("證券代號", "證券名稱", "本益比", "股價淨值比", "殖利率(%)", "股利年度", "財報年/季")]
+           for r in resp["data"]]
+    return str(resp.get("date") or ""), out

@@ -39,11 +39,11 @@ from sources.tpex.daily_quotes import otc_daily_quotes         # noqa: E402
 from sources.twse.mi_5mins_hist import taiex_history           # noqa: E402
 from sources.twse.twt49u import exright_results                # noqa: E402
 from sources.tpex.ex_daily_q import otc_exright_results        # noqa: E402
-from sources.twse.bwibbu_d import valuation_ratios             # noqa: E402
+from sources.twse.bwibbu_d import BWIBBU_D_URL                 # noqa: E402
 from sources.tpex.pe_qry_date import otc_valuation_ratios      # noqa: E402
 from services.market_snapshot import TPEX_PROFILE_URL, LISTED_PROFILE_ENDPOINT  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from dividend_calc import parse_detail, twse_row                 # noqa: E402
+from dividend_calc import parse_bwibbu, parse_detail, twse_row   # noqa: E402
 
 OUT = os.path.abspath(os.path.expanduser(args.out))
 for sub in ("twse", "tpex", "index", "exright", "valuation/twse", "valuation/tpex"):
@@ -178,12 +178,12 @@ def fetch_valuation(ds):
     """ds 當天上市（BWIBBU_d）＋上櫃（peQryDate）每檔本益比、淨值比、殖利率；已存在就跳過，回傳日期不符就不寫檔。"""
     p1 = os.path.join(OUT, "valuation", "twse", f"{ds}.csv")
     if not os.path.exists(p1):
-        r = call(f"上市估值 {ds}", lambda: valuation_ratios(client, ds))
-        if r.found and r.date == ds and r.valuations:
-            write_csv(p1, VAL_FIELDS, [[ds, v.code, v.name, s(v.pe), s(v.pb), s(v.dividend_yield), v.dividend_year,
-                                        v.fiscal, ""] for v in r.valuations])
+        served, vals = call(f"上市估值 {ds}", lambda: parse_bwibbu(client.fetch_json(
+            BWIBBU_D_URL, params={"response": "json", "selectType": "ALL", "date": ds})))
+        if served == ds and vals:
+            write_csv(p1, VAL_FIELDS, [[ds] + v + [""] for v in vals])
         else:
-            print(f"  估值 上市 {ds} 無資料（回傳 {r.date or r.stat}）", flush=True)
+            print(f"  估值 上市 {ds} 無資料（回傳 {served or '查無'}）", flush=True)
     p2 = os.path.join(OUT, "valuation", "tpex", f"{ds}.csv")
     if not os.path.exists(p2):
         r = call(f"上櫃估值 {ds}", lambda: otc_valuation_ratios(client, ds))

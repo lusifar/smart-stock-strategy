@@ -148,5 +148,29 @@ class AdjustCash(unittest.TestCase):
         self.assertIsNone(dc.stock_factor(None))
 
 
+class ParseBwibbu(unittest.TestCase):
+    def test_new_format(self):
+        resp = {"stat": "OK", "date": "20261123",
+                "fields": ["證券代號", "證券名稱", "收盤價", "殖利率(%)", "股利年度", "本益比", "股價淨值比", "財報年/季"],
+                "data": [["2330", "台積電", "2,030.00", "1.08", 114, "20.66", "7.52", "115/3"],
+                         ["1101", "台泥", "20.00", "5.00", 114, "-", "0.90", "115/3"]]}
+        self.assertEqual(dc.parse_bwibbu(resp), ("20261123", [
+            ["2330", "台積電", "20.66", "7.52", "1.08", "114", "115/3"],
+            ["1101", "台泥", "", "0.90", "5.00", "114", "115/3"]]))
+
+    def test_old_format(self):
+        resp = {"stat": "OK", "date": "20161122",
+                "fields": ["證券代號", "證券名稱", "本益比", "殖利率(%)", "股價淨值比"],
+                "data": [["2330", "台積電", "14.50", "3.50", "3.80"]]}
+        self.assertEqual(dc.parse_bwibbu(resp), ("20161122", [["2330", "台積電", "14.50", "3.80", "3.50", "", ""]]))
+
+    def test_no_data(self):
+        self.assertEqual(dc.parse_bwibbu({"stat": "很抱歉，沒有符合條件的資料!"}), ("", []))
+
+    def test_missing_required_field(self):
+        with self.assertRaises(ValueError):
+            dc.parse_bwibbu({"stat": "OK", "date": "20161122", "fields": ["證券代號", "本益比"], "data": [["2330", "1"]]})
+
+
 if __name__ == "__main__":
     unittest.main()
