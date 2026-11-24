@@ -105,7 +105,7 @@ if os.path.exists(ind_path):
         industry[r["code"]] = r["industry"]
 
 factors = defaultdict(list)  # code -> [(exdate, ratio)]
-for f in glob.glob(os.path.join(D, "exright", "*.csv")):
+for f in glob.glob(os.path.join(D, "exright", "*_[0-9][0-9][0-9][0-9].csv")):
     for r in csv.DictReader(open(f, encoding="utf-8")):
         cb, ref = num(r["close_before"]), num(r["reference"])
         if cb and ref and 0 < ref < cb:

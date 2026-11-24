@@ -63,7 +63,7 @@ for mk in ("twse", "tpex"):
             bars[r["code"]][r["date"]] = [o, h, l, c, num(r["volume"]) or 0]
             names[r["code"]] = r["name"]
 factors = defaultdict(list)
-for f in glob.glob(os.path.join(D, "exright", "*.csv")):
+for f in glob.glob(os.path.join(D, "exright", "*_[0-9][0-9][0-9][0-9].csv")):
     for r in csv.DictReader(open(f, encoding="utf-8")):
         if r["code"] in want:
             cb, ref = num(r["close_before"]), num(r["reference"])

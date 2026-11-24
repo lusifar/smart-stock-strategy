@@ -64,7 +64,7 @@ print(f"日線 {len(df):,} 筆，{df['code'].nunique()} 檔", flush=True)
 
 # ---------- 除權息還原 ----------
 factors = defaultdict(list)
-for f in glob.glob(os.path.join(D, "exright", "*.csv")):
+for f in glob.glob(os.path.join(D, "exright", "*_[0-9][0-9][0-9][0-9].csv")):
     ex = pd.read_csv(f, dtype=str)
     for code, d, cb, ref in zip(ex["code"], ex["date"], num(ex["close_before"]), num(ex["reference"])):
         if cb and ref and 0 < ref < cb:
