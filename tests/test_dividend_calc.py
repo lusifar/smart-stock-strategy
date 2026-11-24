@@ -103,5 +103,50 @@ class Stats(unittest.TestCase):
         self.assertEqual(dc.weekly_last(rows), [("20261120",), ("20261124",)])
 
 
+class ShareChanges(unittest.TestCase):
+    MKT = ["20260101", "20260102", "20260105", "20260106", "20260107", "20260108", "20260109"]
+
+    def test_halted_gap_is_share_change(self):
+        close = {"20260101": 190.0, "20260109": 28.0}
+        opn = {"20260101": 190.0, "20260109": 19.0}
+        self.assertEqual(dc.share_changes(close, opn, self.MKT, set()), [("20260109", 0.1)])
+
+    def test_consecutive_days_ignored(self):
+        close = {"20260101": 10.0, "20260102": 13.0}
+        opn = {"20260101": 10.0, "20260102": 12.0}
+        self.assertEqual(dc.share_changes(close, opn, self.MKT, set()), [])
+
+    def test_small_gap_after_halt_ignored(self):
+        close = {"20260101": 10.0, "20260109": 10.5}
+        opn = {"20260101": 10.0, "20260109": 11.0}
+        self.assertEqual(dc.share_changes(close, opn, self.MKT, set()), [])
+
+    def test_exright_day_ignored(self):
+        close = {"20260101": 10.0, "20260109": 5.0}
+        opn = {"20260101": 10.0, "20260109": 5.0}
+        self.assertEqual(dc.share_changes(close, opn, self.MKT, {"20260109"}), [])
+
+
+class AdjustCash(unittest.TestCase):
+    def test_later_factors_scale_earlier_cash(self):
+        ev = [("20240701", 10.0), ("20250701", 10.0), ("20260701", 1.2)]
+        factors = [("20250101", 0.5), ("20260101", 0.1)]
+        out = dc.adjust_cash(ev, factors)
+        self.assertEqual([d for d, _ in out], ["20240701", "20250701", "20260701"])
+        for (_, got), want in zip(out, [0.5, 1.0, 1.2]):
+            self.assertAlmostEqual(got, want)
+
+    def test_same_day_stock_dividend_dilutes_cash(self):
+        self.assertAlmostEqual(dc.adjust_cash([("20250701", 2.4)], [("20250701", 1 / 1.2)])[0][1], 2.0)
+
+    def test_none_cash_kept(self):
+        self.assertEqual(dc.adjust_cash([("20240701", None)], [("20250101", 0.5)]), [("20240701", None)])
+
+    def test_stock_dividend_factor(self):
+        self.assertAlmostEqual(dc.stock_factor(100), 1 / 1.1)
+        self.assertIsNone(dc.stock_factor(0))
+        self.assertIsNone(dc.stock_factor(None))
+
+
 if __name__ == "__main__":
     unittest.main()

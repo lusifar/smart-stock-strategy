@@ -67,6 +67,7 @@ class ComputeDividend(unittest.TestCase):
         self.assertIn("9999", [x["code"] for x in rows(self.out("dividend_list_G_20261124.csv"))])
         hist = [x for x in rows(self.out("dividend_history.csv")) if x["code"] == "9999"]
         self.assertEqual(sorted(x["year"] for x in hist), [str(y) for y in range(2020, 2026)])
+        self.assertTrue(all(x["cash_adj"] == x["cash"] for x in hist))
 
     def test_summary_written(self):
         self.assertTrue(os.path.exists(self.out("dividend_summary_20261124.md")))

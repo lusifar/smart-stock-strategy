@@ -4,7 +4,7 @@
 讀 <data>/ 的日線（twse/、tpex/，未還原收盤）、每日估值（valuation/）、除權息股利（exright/），輸出到 <data>/output/：
   dividend_YYYYMMDD.csv           每檔一列：官方本益比／淨值比／殖利率、近四季 EPS、每股淨值、近 12 個月殖利率、
                                   5 年平均殖利率、連續配息年數、股利穩定度、歷史百分位、河流圖分位數
-  dividend_history.csv            每檔每年股利（依除權息日的西元年）
+  dividend_history.csv            每檔每年股利（依除權息日的西元年）；cash＝當年公告，cash_adj＝換算成今天股數
   river/<代號>.csv                每週一列（每週最後一個交易日）：收盤、本益比、淨值比、EPS、每股淨值、殖利率
   dividend_list_G_YYYYMMDD.csv    G 長期配息
   dividend_list_H_YYYYMMDD.csv    H 長期配息＋相對低估
@@ -15,7 +15,8 @@
 import argparse, csv, datetime as dt, glob, os
 from collections import defaultdict
 
-from dividend_calc import annual_cash, cash_ttm, percentile_rank, quantiles, weekly_last, yearly_stats
+from dividend_calc import (adjust_cash, annual_cash, cash_ttm, percentile_rank, quantiles, share_changes,
+                           stock_factor, weekly_last, yearly_stats)
 
 p = argparse.ArgumentParser()
 p.add_argument("--data", required=True)
@@ -44,7 +45,7 @@ def days_before(ds, n):
 
 
 # ---------- 日線（未還原收盤、成交金額） ----------
-close, value = defaultdict(dict), defaultdict(dict)
+close, opn, value = defaultdict(dict), defaultdict(dict), defaultdict(dict)
 names, market = {}, {}
 for mk, label in (("twse", "上市"), ("tpex", "上櫃")):
     for f in sorted(glob.glob(os.path.join(D, mk, "*.csv"))):
@@ -53,6 +54,7 @@ for mk, label in (("twse", "上市"), ("tpex", "上櫃")):
             if c is None:
                 continue
             close[r["code"]][r["date"]] = c
+            opn[r["code"]][r["date"]] = num(r["open"])
             value[r["code"]][r["date"]] = num(r["value"]) or 0
             names[r["code"]], market[r["code"]] = r["name"], label
 all_dates = sorted({d for v in close.values() for d in v})
@@ -93,12 +95,18 @@ RIVER = ["date", "close", "pe", "pb", "eps_ttm", "bvps", "yield_pct"]
 d10, d5 = days_before(asof, 3650), days_before(asof, 1826)
 os.makedirs(os.path.join(OUT, "river"), exist_ok=True)
 rows = []
+adj_factors = {}
 for code, cl in close.items():
     c = cl.get(asof)
     if c is None:
         continue
     vs = [value[code][d] for d in sorted(value[code]) if d <= asof][-20:]
-    ev = [(d, cash) for d, cash, _ in events.get(code, [])]
+    ev_all = events.get(code, [])
+    cl_asof = {d: x for d, x in cl.items() if d <= asof}
+    factors = share_changes(cl_asof, opn[code], all_dates, {d for d, _, _ in ev_all})
+    factors += [(d, stock_factor(s)) for d, _, s in ev_all if stock_factor(s)]
+    adj_factors[code] = factors = sorted(factors)
+    ev = adjust_cash([(d, cash) for d, cash, _ in ev_all], factors)
     st = yearly_stats(annual_cash(ev), last_year)
     ttm = cash_ttm(ev, asof)
     hist = val.get(code, [])
@@ -157,16 +165,18 @@ write(f"dividend_list_H_{asof}.csv", FIELDS, H)
 
 hist_rows = []
 for code, ev in sorted(events.items()):
-    by_year = defaultdict(lambda: [0.0, 0.0, 0])
-    for d, cash, stock in ev:
+    by_year = defaultdict(lambda: [0.0, 0.0, 0.0, 0])
+    adj = adjust_cash([(d, cash) for d, cash, _ in ev], adj_factors.get(code, []))
+    for (d, cash, stock), (_, cash_adj) in zip(ev, adj):
         y = by_year[int(d[:4])]
         y[0] += cash or 0
-        y[1] += stock or 0
-        y[2] += 1 if cash else 0
-    for y, (cash, stock, n) in sorted(by_year.items()):
+        y[1] += cash_adj or 0
+        y[2] += stock or 0
+        y[3] += 1 if cash else 0
+    for y, (cash, cash_adj, stock, n) in sorted(by_year.items()):
         hist_rows.append(dict(code=code, name=names.get(code, ""), year=y, cash=round(cash, 4),
-                              stock_per_1000=round(stock, 2), times=n))
-write("dividend_history.csv", ["code", "name", "year", "cash", "stock_per_1000", "times"], hist_rows)
+                              cash_adj=round(cash_adj, 4), stock_per_1000=round(stock, 2), times=n))
+write("dividend_history.csv", ["code", "name", "year", "cash", "cash_adj", "stock_per_1000", "times"], hist_rows)
 
 # ---------- 摘要 ----------
 COLS = [("代號", "code"), ("名稱", "name"), ("收盤", "close"), ("殖利率 %", "yield_pct"), ("近12月殖利率 %", "yield_ttm"),
@@ -191,7 +201,7 @@ md = [f"# 配息名單 {asof}\n",
       f"\n## H 長期配息＋相對低估\n\nG 且殖利率在自己近 10 年的百分位 ≥ {args.min_yield_pctile:g}、"
       f"淨值比百分位 ≤ {args.max_pb_pctile:g}。依殖利率百分位排序。\n",
       table(H),
-      "\n殖利率 %＝官方殖利率；近12月殖利率＝近 365 天除息現金合計 ÷ 收盤；5年均殖利率＝近 5 個完整年度平均現金股利 ÷ 收盤。"
+      "\n殖利率 %＝官方殖利率；近12月殖利率＝近 365 天除息現金合計 ÷ 收盤；5年均殖利率＝近 5 個完整年度平均現金股利 ÷ 收盤；過去股利已依其後的配股、減資、面額變更換算成今天的股數。"
       "百分位越高代表殖利率相對自己歷史越高（股價相對便宜）；淨值比百分位越低越便宜。\n"]
 open(os.path.join(OUT, f"dividend_summary_{asof}.md"), "w", encoding="utf-8").write("\n".join(md))
 print(f"{asof}：配息指標 {len(rows)} 檔；G {len(G)} 檔；H {len(H)} 檔 → {OUT}")

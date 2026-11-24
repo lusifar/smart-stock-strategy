@@ -118,3 +118,36 @@ def weekly_last(rows):
             out.append(r)
             last_week = wk
     return out
+
+
+def share_changes(close, opn, market_dates, exdates, threshold=0.15, min_halt=3):
+    """減資、面額變更等股數變動：停止交易 ≥ min_halt 個市場交易日後，恢復日開盤 ÷ 停牌前收盤偏離 1 超過 threshold，
+    且不是除權息日。close/opn：{YYYYMMDD: 價}；market_dates：全市場交易日（排序）。回 [(恢復日, 股價比例)]。"""
+    out = []
+    ds = sorted(close)
+    for a, b in zip(ds, ds[1:]):
+        skipped = bisect.bisect_left(market_dates, b) - bisect.bisect_right(market_dates, a)
+        o = opn.get(b)
+        if skipped < min_halt or b in exdates or not o or not close[a]:
+            continue
+        r = o / close[a]
+        if abs(r - 1) > threshold:
+            out.append((b, round(r, 6)))
+    return out
+
+
+def stock_factor(stock_per_1000):
+    """配股造成的每股股利稀釋比例；沒配股回 None。"""
+    return 1 / (1 + stock_per_1000 / 1000) if stock_per_1000 else None
+
+
+def adjust_cash(events, factors):
+    """把每筆現金股利乘上同日及其後所有股數變動比例，換算成以今天股數計的每股股利。"""
+    out = []
+    for d, cash in events:
+        if cash is not None:
+            for fd, f in factors:
+                if fd >= d:
+                    cash *= f
+        out.append((d, cash))
+    return out
